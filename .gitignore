@@ -1,0 +1,10 @@
+# 出题产物，禁止提交
+.gogo/
+.cursor/
+docs/
+.DS_Store
+*.exe
+*.test
+*.out
+dist/
+vendor/

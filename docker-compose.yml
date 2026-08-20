@@ -1,0 +1,28 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: benzhi.Dockerfile
+    environment:
+      - TZ=Asia/Shanghai
+      - DATA_DIR=/data
+      - HTTP_ADDR=:8080
+      - PORT=8080
+    ports:
+      - "18133:8080"
+    volumes:
+      - app-data:/data
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - go build -o /tmp/gotorrent ./cmd/tracker && /tmp/gotorrent
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || curl -sf http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
+volumes:
+  app-data:
