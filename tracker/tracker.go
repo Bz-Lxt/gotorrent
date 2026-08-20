@@ -93,6 +93,7 @@ func Open(peerTTL time.Duration, dataDir string) (*Tracker, error) {
 func (t *Tracker) Announce(infoHash [20]byte, p PeerInfo, name string, length int64, maxPeers int) []*PeerInfo {
 	key := hex.EncodeToString(infoHash[:])
 	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	sw, ok := t.swarms[key]
 	if !ok {
@@ -119,9 +120,7 @@ func (t *Tracker) Announce(infoHash [20]byte, p PeerInfo, name string, length in
 			break
 		}
 	}
-	t.mu.Unlock()
 
-	// 落盘在锁外进行：flushLoop 以 RLock 读取快照，避免与写锁相互等待。
 	t.persist(key)
 	return out
 }
