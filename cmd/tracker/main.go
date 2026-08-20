@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/Bz-Lxt/gotorrent/tracker"
@@ -18,10 +19,17 @@ func main() {
 	maxPeers := flag.Int("max-peers", 50, "每次 announce 最多返回的节点数")
 	flag.Parse()
 
-	tr := tracker.New(*peerTTL)
+	dataDir := os.Getenv("DATA_DIR")
+	tr, err := tracker.Open(*peerTTL, dataDir)
+	if err != nil {
+		log.Fatalf("打开 Tracker 失败: %v", err)
+	}
 	srv := tracker.NewServer(tr, *interval, *maxPeers)
 
 	fmt.Printf("GoTorrent Tracker 已启动\n")
+	if dataDir != "" {
+		fmt.Printf("  数据目录:  %s\n", dataDir)
+	}
 	fmt.Printf("  管理页面:  http://localhost%s/\n", *addr)
 	fmt.Printf("  Announce:  http://localhost%s/announce\n", *addr)
 	log.Fatal(http.ListenAndServe(*addr, srv.Handler()))
