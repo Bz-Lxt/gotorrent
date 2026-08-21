@@ -2,6 +2,7 @@
 package announce
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +28,13 @@ func NewClient() *Client {
 
 // Do 发送一次 announce，返回解析后的响应。
 func (c *Client) Do(req Request) (*Response, error) {
+	return c.DoCtx(context.Background(), req)
+}
+
+// DoCtx 发送一次 announce，支持 context 取消/超时。
+// 当 ctx 设有截止时间时，使用其截止时间构建 HTTP 请求，
+// 避免一条慢速 Tracker 汇报长时间阻塞调用方。
+func (c *Client) DoCtx(ctx context.Context, req Request) (*Response, error) {
 	if req.AnnounceURL == "" {
 		return nil, fmt.Errorf("缺少 announce URL")
 	}
@@ -65,7 +73,11 @@ func (c *Client) Do(req Request) (*Response, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: c.Timeout}
 	}
-	resp, err := httpClient.Get(u.String())
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("announce 请求构建失败: %w", err)
+	}
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("announce 请求失败: %w", err)
 	}

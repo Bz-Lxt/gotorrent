@@ -270,6 +270,12 @@ func (p *Peer) AddSeed(filePath, trackerURL string) (*Session, error) {
 }
 
 // RemoveSession 停止并移除一个会话。
+//
+// 先在锁内把会话从 sessions 表中摘除，使得 /api/torrents 等读操作
+// 立即看到它已消失；然后释放锁再调用 s.Stop()。Stop 中的本地清理
+// 很快，而向 Tracker 发送 event=stopped 的汇报在独立 goroutine 中
+// 进行。这样一条慢速停止汇报绝不会阻塞 Peer 锁，也就不会拖住
+// /api/torrents 轮询、/api/seed、/api/download 等其他会话操作。
 func (p *Peer) RemoveSession(infoHashHex string) error {
 	var key [20]byte
 	b, err := decodeHex20(infoHashHex)
@@ -279,11 +285,11 @@ func (p *Peer) RemoveSession(infoHashHex string) error {
 	copy(key[:], b)
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	s, ok := p.sessions[key]
 	if ok {
 		delete(p.sessions, key)
 	}
+	p.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("会话不存在")
 	}

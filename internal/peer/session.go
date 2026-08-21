@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -78,11 +79,20 @@ func (s *Session) run() {
 	go s.rateLoop()
 }
 
+// stoppedAnnounceTimeout 是停止汇报允许的最大等待时间。
+// 跨机房 Tracker 偶尔会迟回包；停止汇报不能因此阻塞会话清理，
+// 更不能拖住持有 Peer 锁的调用方。
+const stoppedAnnounceTimeout = 3 * time.Second
+
 // Stop 停止会话并断开所有连接。
+//
+// 本地清理（关闭连接、关闭存储）同步完成且很快；向 Tracker 发送
+// event=stopped 的汇报在独立 goroutine 中进行，并受
+// stoppedAnnounceTimeout 约束。这样即使跨机房 Tracker 迟迟不回包，
+// 会话仍能立即从任务列表消失，Peer 锁也不会被一条停止汇报拖住。
 func (s *Session) Stop() {
 	s.stopOnce.Do(func() {
 		close(s.stopCh)
-		s.announce(announce.EventStopped)
 		s.mu.Lock()
 		for c := range s.conns {
 			c.close()
@@ -90,7 +100,31 @@ func (s *Session) Stop() {
 		s.mu.Unlock()
 		s.store.Close()
 		s.note(eventlog.KindState, "任务已停止")
+		go s.announceStopped()
 	})
+}
+
+// announceStopped 在后台发送 event=stopped，受超时约束。
+// 无论成功、失败还是超时，都只记录日志，不影响已完成的清理。
+func (s *Session) announceStopped() {
+	ctx, cancel := context.WithTimeout(context.Background(), stoppedAnnounceTimeout)
+	defer cancel()
+	if _, err := s.ann.DoCtx(ctx, announce.Request{
+		AnnounceURL: s.tf.Announce,
+		InfoHash:    s.InfoHashHex(),
+		PeerID:      s.peer.ID(),
+		Port:        s.peer.Port(),
+		Uploaded:    s.store.Uploaded,
+		Downloaded:  s.store.Downloaded,
+		Left:        s.store.BytesLeft(),
+		Name:        s.tf.Name,
+		Length:      s.tf.Length,
+		Event:       announce.EventStopped,
+	}); err != nil {
+		s.log.Warnf("停止汇报失败: %v", err)
+	} else {
+		s.note(eventlog.KindAnnounce, "已发送停止汇报")
+	}
 }
 
 func (s *Session) note(kind eventlog.Kind, format string, args ...any) {
