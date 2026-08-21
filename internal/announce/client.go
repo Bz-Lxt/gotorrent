@@ -66,7 +66,22 @@ func (c *Client) Do(req Request) (*Response, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: c.Timeout}
 	}
-	resp, err := c.get(httpClient, u.String())
+
+	// context 的生命周期必须覆盖整个请求（包括响应正文读取）。
+	// http.Client.Do 在响应头到达时就返回，正文是流式读取的；如果把
+	// cancel 放在辅助函数里提前调用，正文尚未读完上下文就会被取消，
+	// 经缓冲网关分段到达的正文会因 context canceled 而解析失败。
+	ctx := context.Background()
+	if c.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.Timeout)
+		defer cancel()
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("announce 请求失败: %w", err)
+	}
+	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("announce 请求失败: %w", err)
 	}
@@ -83,17 +98,4 @@ func (c *Client) Do(req Request) (*Response, error) {
 		return &ar, fmt.Errorf("tracker 拒绝: %s", ar.Failure)
 	}
 	return &ar, nil
-}
-
-func (c *Client) get(httpClient *http.Client, target string) (*http.Response, error) {
-	if c.Timeout <= 0 {
-		return httpClient.Get(target)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return nil, err
-	}
-	return httpClient.Do(req)
 }
