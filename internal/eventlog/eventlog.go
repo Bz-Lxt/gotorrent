@@ -67,7 +67,10 @@ func (l *Log) Recent(n int) []Event {
 	skip := l.size - n
 	first := (start + skip) % l.cap
 	if first+n <= l.cap {
-		return l.buf[first:first+n:first+n]
+		// 必须复制，否则返回的切片与内部环形缓冲区共享底层数组，
+		// 后续 Append 覆盖同一槽位时会篡改调用方持有的快照内容。
+		out = append(out, l.buf[first:first+n]...)
+		return out
 	}
 	for i := 0; i < l.size; i++ {
 		if i < skip {
